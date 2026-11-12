@@ -14,12 +14,17 @@ const pool = new Pool({
     ssl: { rejectUnauthorized: false } 
 });
 
-// --- CONFIGURACIÓN DE TELEGRAM ---
-const TELEGRAM_TOKEN = '8924337848:AAFGDJNL-mlHcwj1mJAq2dDmavj7dHL0QeI';
-const CHAT_ID = '-1004356075782';
+// --- CONFIGURACIÓN DE TELEGRAM (DESDE ENV VARS) ---
+const TELEGRAM_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
+const CHAT_ID = process.env.TELEGRAM_CHAT_ID;
+
+if (!TELEGRAM_TOKEN || !CHAT_ID) {
+    console.error("❌ Faltan las variables de entorno TELEGRAM_BOT_TOKEN o TELEGRAM_CHAT_ID");
+}
+
 const bot = new TelegramBot(TELEGRAM_TOKEN, { polling: false });
 
-// 🔥 IMPORTANTE: URL base de tu backend en Render
+// 🔥 IMPORTANTE: URL base de tu backend en Render para el Webhook
 const BACKEND_URL = process.env.BACKEND_URL || 'https://backkkk-rj54.onrender.com';
 
 // ==========================================
