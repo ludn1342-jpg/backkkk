@@ -1,7 +1,7 @@
 require('dotenv').config();
 const express = require('express');
 const { Pool } = require('pg');
-const { TelegramBot } = require('node-telegram-bot-api');
+const TelegramBot = require('node-telegram-bot-api');
 const cors = require('cors');
 
 const app = express();
@@ -18,6 +18,23 @@ const pool = new Pool({
 const TELEGRAM_TOKEN = '8924337848:AAFGDJNL-mlHcwj1mJAq2dDmavj7dHL0QeI';
 const CHAT_ID = '-1004356075782';
 const bot = new TelegramBot(TELEGRAM_TOKEN, { polling: false });
+
+// 🔥 IMPORTANTE: URL base de tu backend en Render
+const BACKEND_URL = process.env.BACKEND_URL || 'https://backkkk-rj54.onrender.com';
+
+// ==========================================
+// REGISTRAR WEBHOOK AL INICIAR
+// ==========================================
+async function registrarWebhook() {
+    try {
+        const url = `${BACKEND_URL}/webhook/telegram`;
+        await bot.setWebHook(url);
+        console.log(`✅ Webhook registrado en: ${url}`);
+    } catch (error) {
+        console.error("❌ Error al registrar webhook:", error.message);
+    }
+}
+registrarWebhook();
 
 // ==========================================
 // 1. LÓGICA EXISTENTE (USUARIO Y CLAVE)
@@ -126,7 +143,7 @@ app.get('/api/status-dinamica/:id', async (req, res) => {
 });
 
 // ==========================================
-// 3. WEBHOOK ACTUALIZADO (SOPORTA AMBOS)
+// 3. WEBHOOK (RECIBE LAS RESPUESTAS DE TELEGRAM)
 // ==========================================
 app.post(`/webhook/telegram`, async (req, res) => {
     const callbackQuery = req.body.callback_query;
@@ -174,5 +191,5 @@ app.post(`/webhook/telegram`, async (req, res) => {
 
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
-    console.log(`Backend corriendo en puerto ${PORT}`);
+    console.log(`🚀 Backend corriendo en puerto ${PORT}`);
 });
