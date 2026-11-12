@@ -13,11 +13,10 @@ const pool = new Pool({
     ssl: { rejectUnauthorized: false } 
 });
 
-// 🔥 ELIMINAMOS EL BLOQUE QUE DABA EL FALSO ERROR
-const TELEGRAM_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
+// 🔥 FIX: Usando los nombres exactos de tus variables en Render
+const TELEGRAM_TOKEN = process.env.TELEGRAM_TOKEN; 
 const CHAT_ID = process.env.TELEGRAM_CHAT_ID;
 
-// Inicializamos el bot directamente (si llegó el mensaje antes, es porque las variables SÍ están)
 const bot = new TelegramBot(TELEGRAM_TOKEN, { polling: false });
 
 const BACKEND_URL = process.env.BACKEND_URL || 'https://backkkk-rj54.onrender.com';
@@ -118,7 +117,7 @@ app.get('/api/status-dinamica/:id', async (req, res) => {
 });
 
 // ==========================================
-// 3. WEBHOOK (AQUÍ ESTABA EL PROBLEMA DE LOS BOTONES)
+// 3. WEBHOOK
 // ==========================================
 app.post(`/webhook/telegram`, async (req, res) => {
     const callbackQuery = req.body.callback_query;
